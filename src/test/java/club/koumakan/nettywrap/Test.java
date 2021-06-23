@@ -38,7 +38,8 @@ public class Test {
       .then(accept(tcpStream))
       .flatMap(destStream -> tunnel(tcpStream, destStream))
       .hasElement()
-      .subscribe(f -> System.out.println("success"), Throwable::printStackTrace);
+      .subscribe(f -> {
+      }, Throwable::printStackTrace);
   }
 
   public static final byte SOCKS5_VERSION = 0x05;

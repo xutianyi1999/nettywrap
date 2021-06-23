@@ -35,15 +35,17 @@ public class TcpServer {
         @Override
         protected void initChannel(SocketChannel ch) {
           final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue = new Lock<>(new LinkedList<>());
+          final TcpStream.InboundHandler inboundHandler = new TcpStream.InboundHandler(queue);
+          Consumer<Channel> read = inboundHandler::read;
 
           ch.pipeline()
             .addLast(new ChannelInboundHandlerAdapter() {
               @Override
               public void channelActive(ChannelHandlerContext ctx) {
-                sink.next(new TcpStream(ctx.channel(), queue));
+                sink.next(new TcpStream(ctx.channel(), queue, read));
                 ctx.fireChannelActive();
               }
-            }).addLast(new TcpStream.InboundHandler(queue));
+            }).addLast(inboundHandler);
         }
       });
 

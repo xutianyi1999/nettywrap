@@ -2,6 +2,7 @@ package club.koumakan.nettywrap;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
 import io.netty.util.concurrent.GenericFutureListener;
@@ -26,12 +27,14 @@ public class TcpClient {
 
   public Mono<TcpStream> connect(InetSocketAddress dest) {
     final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue = new Lock<>(new LinkedList<>());
+    final TcpStream.InboundHandler inboundHandler = new TcpStream.InboundHandler(queue);
+    Consumer<Channel> read = inboundHandler::read;
 
     return Mono.create(sink -> baseBootstrap.clone()
-      .handler(new TcpStream.InboundHandler(queue))
+      .handler(inboundHandler)
       .connect(dest)
       .addListener((GenericFutureListener<ChannelFuture>) future -> {
-        if (future.isSuccess()) sink.success(new TcpStream(future.channel(), queue));
+        if (future.isSuccess()) sink.success(new TcpStream(future.channel(), queue, read));
         else sink.error(future.cause());
       })
     );

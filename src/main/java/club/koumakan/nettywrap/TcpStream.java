@@ -20,10 +20,12 @@ public class TcpStream implements AsyncRead, AsyncWrite {
 
   private final Channel channel;
   private final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue;
+  private final Consumer<Channel> innerRead;
 
-  public TcpStream(Channel channel, Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue) {
+  public TcpStream(Channel channel, Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue, Consumer<Channel> innerRead) {
     this.channel = channel;
     this.queue = queue;
+    this.innerRead = innerRead;
   }
 
   @Override
@@ -52,7 +54,7 @@ public class TcpStream implements AsyncRead, AsyncWrite {
       }));
 
       if (queue.size() == 1) {
-        channel.read();
+        innerRead.accept(channel);
       }
       return null;
     }));
@@ -91,6 +93,40 @@ public class TcpStream implements AsyncRead, AsyncWrite {
       this.queue = queue;
     }
 
+    public void read(Channel channel) {
+      try {
+        queue.lock(queue -> {
+          final Consumer<Void> yf = YFact.yConsumer(f -> nil -> {
+            if (!queue.isEmpty()) {
+              Tuple2<Integer, Consumer<ByteBuf>> peek = queue.peek();
+              final int requireLen = peek.getT1();
+              final Consumer<ByteBuf> callback = peek.getT2();
+
+              if (
+                cumulator != null &&
+                  cumulator.isReadable() &&
+                  cumulator.readableBytes() >= requireLen
+              ) {
+                callback.accept(cumulator.readBytes(requireLen == 0 ? cumulator.readableBytes() : requireLen));
+                queue.remove();
+                f.accept(null);
+              } else {
+                channel.read();
+              }
+            }
+          });
+
+          yf.accept(null);
+          return null;
+        });
+      } finally {
+        if (cumulator != null && !cumulator.isReadable()) {
+          cumulator.release();
+          cumulator = null;
+        }
+      }
+    }
+
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
       ByteBuf data = (ByteBuf) msg;
@@ -101,34 +137,9 @@ public class TcpStream implements AsyncRead, AsyncWrite {
         }
 
         cumulator.writeBytes(data);
-
-        queue.lock(queue -> {
-          final Consumer<Void> yf = YFact.yConsumer(f -> nil -> {
-            if (!queue.isEmpty()) {
-              Tuple2<Integer, Consumer<ByteBuf>> peek = queue.peek();
-              final int requireLen = peek.getT1();
-              final Consumer<ByteBuf> callback = peek.getT2();
-
-              if (cumulator.isReadable() && cumulator.readableBytes() >= requireLen) {
-                callback.accept(cumulator.readBytes(requireLen == 0 ? cumulator.readableBytes() : requireLen));
-                queue.remove();
-                f.accept(null);
-              } else {
-                ctx.read();
-              }
-            }
-          });
-
-          yf.accept(null);
-          return null;
-        });
+        read(ctx.channel());
       } finally {
         data.release();
-
-        if (!cumulator.isReadable()) {
-          cumulator.release();
-          cumulator = null;
-        }
       }
     }
 
