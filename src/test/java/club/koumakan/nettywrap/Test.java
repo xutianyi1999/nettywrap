@@ -91,22 +91,6 @@ public class Test {
     });
   }
 
-  static class AcceptRequest {
-    byte version;
-    byte cmd;
-    byte addrType;
-    byte[] bindAddr;
-    short bindPort;
-
-    public AcceptRequest(byte version, byte cmd, byte addrType, byte[] bindAddr, short bindPort) {
-      this.version = version;
-      this.cmd = cmd;
-      this.addrType = addrType;
-      this.bindAddr = bindAddr;
-      this.bindPort = bindPort;
-    }
-  }
-
   <RW extends AsyncRead & AsyncWrite> Mono<TcpStream> accept(RW stream) {
     return stream.read(4).flatMap(buff -> {
       final byte version = buff.readByte();
@@ -122,7 +106,7 @@ public class Test {
         mono = stream.read(4 + 2).map(buf -> {
           byte[] bindAddr = new byte[4];
           buf.readBytes(bindAddr);
-          final short bindPort = buf.readShort();
+          final int bindPort = buf.readUnsignedShort();
 
           buf.release();
           return Optional.of(new AcceptRequest(version, cmd, addrType, bindAddr, bindPort));
@@ -131,20 +115,20 @@ public class Test {
         mono = stream.read(16 + 2).map(buf -> {
           final byte[] bindAddr = new byte[16];
           buf.readBytes(bindAddr);
-          final short bindPort = buf.readShort();
+          final int bindPort = buf.readUnsignedShort();
 
           buf.release();
           return Optional.of(new AcceptRequest(version, cmd, addrType, bindAddr, bindPort));
         });
       } else if (addrType == DOMAIN_NAME) {
         mono = stream.read(1).flatMap(lenBuf -> {
-          final byte len = lenBuf.readByte();
+          final int len = lenBuf.readUnsignedByte();
           lenBuf.release();
 
           return stream.read(len + 2).map(buf -> {
             byte[] domainName = new byte[len];
             buf.readBytes(domainName);
-            final short bindPort = buf.readShort();
+            final int bindPort = buf.readUnsignedShort();
 
             buf.release();
             return Optional.of(new AcceptRequest(version, cmd, addrType, domainName, bindPort));
@@ -172,10 +156,10 @@ public class Test {
 
             try {
               destAddr = new InetSocketAddress(InetAddress.getByAddress(acceptRequest.bindAddr), acceptRequest.bindPort);
-              connection = client.connect(destAddr);
             } catch (Exception e) {
               return Mono.error(e);
             }
+            connection = client.connect(destAddr);
           } else {
             connection = client.connect(new InetSocketAddress(new String(acceptRequest.bindAddr, StandardCharsets.UTF_8), acceptRequest.bindPort));
           }
@@ -215,15 +199,31 @@ public class Test {
     });
   }
 
+  static class AcceptRequest {
+    byte version;
+    byte cmd;
+    byte addrType;
+    byte[] bindAddr;
+    int bindPort;
+
+    public AcceptRequest(byte version, byte cmd, byte addrType, byte[] bindAddr, int bindPort) {
+      this.version = version;
+      this.cmd = cmd;
+      this.addrType = addrType;
+      this.bindAddr = bindAddr;
+      this.bindPort = bindPort;
+    }
+  }
+
   Mono<Void> tunnel(TcpStream sourceStream, TcpStream destStream) {
     return Mono.create(sink -> {
       final Consumer<Tuple2<TcpStream, TcpStream>> yf = YFact.yConsumer(f -> tuple -> {
-          final TcpStream source = tuple.getT1();
-          final TcpStream dest = tuple.getT2();
+        final TcpStream source = tuple.getT1();
+        final TcpStream dest = tuple.getT2();
 
-          source.read().subscribe(data -> {
-            if (data.isReadable()) {
-              dest.write(data)
+        source.read().subscribe(data -> {
+          if (data.isReadable()) {
+            dest.write(data)
                 .hasElement()
                 .subscribe(_nil -> f.accept(tuple), err -> {
                   source.close();
