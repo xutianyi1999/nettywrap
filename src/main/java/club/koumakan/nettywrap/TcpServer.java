@@ -34,7 +34,7 @@ public class TcpServer {
       serverBootstrap.childHandler(new ChannelInitializer<SocketChannel>() {
         @Override
         protected void initChannel(SocketChannel ch) {
-          final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue = new Lock<>(new LinkedList<>());
+          final Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue = new LinkedList<>();
           final TcpStream.InboundHandler inboundHandler = new TcpStream.InboundHandler(queue);
           Consumer<Channel> read = inboundHandler::read;
 

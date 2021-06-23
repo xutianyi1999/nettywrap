@@ -19,10 +19,10 @@ import java.util.function.Consumer;
 public class TcpStream implements AsyncRead, AsyncWrite {
 
   private final Channel channel;
-  private final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue;
+  private final Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue;
   private final Consumer<Channel> innerRead;
 
-  public TcpStream(Channel channel, Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue, Consumer<Channel> innerRead) {
+  public TcpStream(Channel channel, Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue, Consumer<Channel> innerRead) {
     this.channel = channel;
     this.queue = queue;
     this.innerRead = innerRead;
@@ -43,21 +43,24 @@ public class TcpStream implements AsyncRead, AsyncWrite {
       return Mono.error(new IOException("Channel is closed"));
     }
 
-    return Mono.create(sink -> queue.lock(queue -> {
-      queue.add(Tuples.of(length, data -> {
+    return Mono.create(sink -> {
+      final Tuple2<Integer, Consumer<ByteBuf>> tuple = Tuples.of(length, data -> {
         if (data.isReadable()) {
           sink.success(data);
         } else {
           if (length == 0) sink.success(data);
           else sink.error(new IOException("Already EOF"));
         }
-      }));
+      });
 
-      if (queue.size() == 1) {
-        innerRead.accept(channel);
-      }
-      return null;
-    }));
+      channel.eventLoop().execute(() -> {
+        queue.add(tuple);
+
+        if (queue.size() == 1) {
+          innerRead.accept(channel);
+        }
+      });
+    });
   }
 
   public Mono<Void> closeable() {
@@ -86,43 +89,37 @@ public class TcpStream implements AsyncRead, AsyncWrite {
 
   public static class InboundHandler extends ChannelInboundHandlerAdapter {
 
-    private final Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue;
+    private final Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue;
     private ByteBuf cumulator;
 
-    public InboundHandler(Lock<Queue<Tuple2<Integer, Consumer<ByteBuf>>>> queue) {
+    public InboundHandler(Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue) {
       this.queue = queue;
     }
 
     public void read(Channel channel) {
-      try {
-        queue.lock(queue -> {
-          final Consumer<Void> yf = YFact.yConsumer(f -> nil -> {
-            if (!queue.isEmpty()) {
-              Tuple2<Integer, Consumer<ByteBuf>> peek = queue.peek();
-              final int requireLen = peek.getT1();
-              final Consumer<ByteBuf> callback = peek.getT2();
+      if (!queue.isEmpty()) {
+        Tuple2<Integer, Consumer<ByteBuf>> peek = queue.peek();
+        final int requireLen = peek.getT1();
+        final Consumer<ByteBuf> callback = peek.getT2();
 
-              if (
-                cumulator != null &&
-                  cumulator.isReadable() &&
-                  cumulator.readableBytes() >= requireLen
-              ) {
-                callback.accept(cumulator.readBytes(requireLen == 0 ? cumulator.readableBytes() : requireLen));
-                queue.remove();
-                f.accept(null);
-              } else {
-                channel.read();
-              }
+        if (
+          cumulator != null &&
+            cumulator.isReadable() &&
+            cumulator.readableBytes() >= requireLen
+        ) {
+          try {
+            callback.accept(cumulator.readBytes(requireLen == 0 ? cumulator.readableBytes() : requireLen));
+          } finally {
+            if (!cumulator.isReadable()) {
+              cumulator.release();
+              cumulator = null;
             }
-          });
+          }
 
-          yf.accept(null);
-          return null;
-        });
-      } finally {
-        if (cumulator != null && !cumulator.isReadable()) {
-          cumulator.release();
-          cumulator = null;
+          queue.remove();
+          read(channel);
+        } else {
+          channel.read();
         }
       }
     }
@@ -149,13 +146,10 @@ public class TcpStream implements AsyncRead, AsyncWrite {
         cumulator.release();
       }
 
-      queue.lock(queue -> {
-        while (!queue.isEmpty()) {
-          final Consumer<ByteBuf> callback = queue.poll().getT2();
-          callback.accept(Unpooled.EMPTY_BUFFER);
-        }
-        return null;
-      });
+      while (!queue.isEmpty()) {
+        final Consumer<ByteBuf> callback = queue.poll().getT2();
+        callback.accept(Unpooled.EMPTY_BUFFER);
+      }
     }
   }
 }
