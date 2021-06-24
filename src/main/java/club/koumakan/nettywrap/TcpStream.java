@@ -39,10 +39,6 @@ public class TcpStream implements AsyncRead, AsyncWrite {
       return Mono.error(new IOException("Length must be greater than 0"));
     }
 
-    if (!channel.isActive()) {
-      return Mono.error(new IOException("Channel is closed"));
-    }
-
     return Mono.create(sink -> {
       final Tuple2<Integer, Consumer<ByteBuf>> tuple = Tuples.of(length, data -> {
         if (data.isReadable()) {
@@ -54,6 +50,11 @@ public class TcpStream implements AsyncRead, AsyncWrite {
       });
 
       channel.eventLoop().execute(() -> {
+        if (!channel.isActive()) {
+          sink.error(new IOException("Already EOF"));
+          return;
+        }
+
         queue.add(tuple);
 
         if (queue.size() == 1) {
@@ -114,10 +115,10 @@ public class TcpStream implements AsyncRead, AsyncWrite {
               cumulator.release();
               cumulator = null;
             }
-          }
 
-          queue.remove();
-          read(channel);
+            queue.remove();
+            read(channel);
+          }
         } else {
           channel.read();
         }
