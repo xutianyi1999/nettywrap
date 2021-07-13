@@ -4,6 +4,8 @@ import club.koumakan.nettywrap.inter.AsyncRead;
 import club.koumakan.nettywrap.inter.AsyncWrite;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.nio.NioSocketChannel;
 import org.apache.commons.lang3.ArrayUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,7 +22,6 @@ import java.util.function.Consumer;
 
 public class Test {
   final Executor executor = Executor.build();
-  final TcpClient client = executor.createTcpClient();
 
   @org.junit.jupiter.api.Test
   void start() {
@@ -35,7 +36,7 @@ public class Test {
 
   void serve(TcpStream tcpStream) {
     negotiate(tcpStream)
-      .then(accept(tcpStream))
+      .then(accept(tcpStream, tcpStream.channel.eventLoop()))
       .flatMap(destStream -> tunnel(tcpStream, destStream))
       .subscribe(f -> {
       }, Throwable::printStackTrace);
@@ -90,7 +91,7 @@ public class Test {
     });
   }
 
-  <RW extends AsyncRead & AsyncWrite> Mono<TcpStream> accept(RW stream) {
+  <RW extends AsyncRead & AsyncWrite> Mono<TcpStream> accept(RW stream, EventLoopGroup ctx) {
     return stream.read(4).flatMap(buff -> {
       final byte version = buff.readByte();
       final byte cmd = buff.readByte();
@@ -149,6 +150,8 @@ public class Test {
 
         if (acceptRequest.cmd == tcp) {
           Mono<TcpStream> connection;
+
+          final TcpClient client = new TcpClient(ctx, NioSocketChannel.class);
 
           if (acceptRequest.addrType == IPV4 || acceptRequest.addrType == IPV6) {
             final InetSocketAddress destAddr;
@@ -217,22 +220,22 @@ public class Test {
   Mono<Void> tunnel(TcpStream sourceStream, TcpStream destStream) {
     return Mono.create(sink -> {
       final Consumer<Tuple2<TcpStream, TcpStream>> yf = YFact.yConsumer(f -> tuple -> {
-        final TcpStream source = tuple.getT1();
-        final TcpStream dest = tuple.getT2();
+          final TcpStream source = tuple.getT1();
+          final TcpStream dest = tuple.getT2();
 
-        source.read().subscribe(data -> {
-          if (data.isReadable()) {
-            dest.write(data)
-              .hasElement()
-              .subscribe(_nil -> f.accept(tuple), err -> {
-                source.close();
-                sink.error(err);
-              });
-          } else {
-            dest.close();
-            sink.success();
-          }
-        }, sink::error);
+          source.read().subscribe(data -> {
+            if (data.isReadable()) {
+              dest.write(data)
+                .hasElement()
+                .subscribe(_nil -> f.accept(tuple), err -> {
+                  source.close();
+                  sink.error(err);
+                });
+            } else {
+              dest.close();
+              sink.success();
+            }
+          }, sink::error);
         }
       );
 

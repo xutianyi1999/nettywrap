@@ -19,7 +19,7 @@ import java.util.function.Consumer;
 
 public class TcpStream implements AsyncRead, AsyncWrite {
 
-  private final Channel channel;
+  public final Channel channel;
   private final Queue<Tuple2<Integer, Consumer<ByteBuf>>> queue;
   private final Consumer<Channel> innerRead;
 

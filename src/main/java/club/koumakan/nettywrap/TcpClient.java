@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.GenericFutureListener;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
@@ -23,6 +24,13 @@ public class TcpClient {
       .option(ChannelOption.AUTO_READ, false)
       .group(executor.bossGroup)
       .channel(executor.channelClass);
+  }
+
+  public TcpClient(EventLoopGroup eventLoop, Class<? extends Channel> channelClass) {
+    this.baseBootstrap = new Bootstrap()
+      .option(ChannelOption.AUTO_READ, false)
+      .group(eventLoop)
+      .channel(channelClass);
   }
 
   public Mono<TcpStream> connect(InetSocketAddress dest) {
