@@ -37,7 +37,6 @@ public class Test {
     negotiate(tcpStream)
       .then(accept(tcpStream))
       .flatMap(destStream -> tunnel(tcpStream, destStream))
-      .hasElement()
       .subscribe(f -> {
       }, Throwable::printStackTrace);
   }
@@ -224,16 +223,16 @@ public class Test {
         source.read().subscribe(data -> {
           if (data.isReadable()) {
             dest.write(data)
-                .hasElement()
-                .subscribe(_nil -> f.accept(tuple), err -> {
-                  source.close();
-                  sink.error(err);
-                });
-            } else {
-              dest.close();
-              sink.success();
-            }
-          }, sink::error);
+              .hasElement()
+              .subscribe(_nil -> f.accept(tuple), err -> {
+                source.close();
+                sink.error(err);
+              });
+          } else {
+            dest.close();
+            sink.success();
+          }
+        }, sink::error);
         }
       );
 

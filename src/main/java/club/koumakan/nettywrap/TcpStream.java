@@ -7,6 +7,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoop;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuples;
@@ -49,7 +50,7 @@ public class TcpStream implements AsyncRead, AsyncWrite {
         }
       });
 
-      channel.eventLoop().execute(() -> {
+      Runnable task = () -> {
         if (!channel.isActive()) {
           sink.error(new IOException("Already EOF"));
           return;
@@ -60,7 +61,15 @@ public class TcpStream implements AsyncRead, AsyncWrite {
         if (queue.size() == 1) {
           innerRead.accept(channel);
         }
-      });
+      };
+
+      final EventLoop eventLoop = channel.eventLoop();
+
+      if (eventLoop.inEventLoop()) {
+        task.run();
+      } else {
+        eventLoop.execute(task);
+      }
     });
   }
 
