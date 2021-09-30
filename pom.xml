@@ -18,21 +18,21 @@
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.1.65.Final</version>
+            <version>4.1.68.Final</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/io.projectreactor/reactor-core -->
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
-            <version>3.4.6</version>
+          <version>3.4.10</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-api -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
-            <version>5.7.2</version>
+          <version>5.8.1</version>
             <scope>test</scope>
         </dependency>
 
